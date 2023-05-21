@@ -8,23 +8,22 @@ ConfigurationManager configuration = builder.Configuration;
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-builder.Services.Configure<AppSettings>(
-    builder.Configuration.GetSection("ApplicationSettings"));
+builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("ApplicationSettings"));
 
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(
-                          policy =>
-                          {
-                              policy.WithOrigins("http://localhost:3001")
-                                                  .AllowAnyHeader()
-                                                  .AllowAnyMethod()
-                                                  .AllowCredentials();
-                          });
+    options.AddDefaultPolicy(policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3001")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
 });
 
 builder.Services.AddScoped<UserService>();
-builder.Services.AddScoped<TwoFactorAuthService>();
+builder.Services.AddScoped<SecondFactorAuthService>();
 builder.Services.AddScoped<AuthorizeFilter>();
 
 var app = builder.Build();

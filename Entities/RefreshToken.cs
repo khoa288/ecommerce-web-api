@@ -1,16 +1,11 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace LoginJWT.Models
+namespace LoginJWT.Entities
 {
     public class RefreshToken
     {
         [Required]
-        public string Token { get; set; }
-
-        public RefreshToken(string token)
-        {
-            Token = token;
-        }
+        public string Token { get; set; } = null!;
 
         public DateTime Created { get; set; }
         public DateTime Expires { get; set; }

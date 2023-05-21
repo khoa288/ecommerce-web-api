@@ -1,20 +1,22 @@
-import { useState, useEffect, useContext } from 'react';
-import ServicesContext from '../services/ServicesContext';
+import { useState, useEffect, useContext } from "react";
+import ServicesContext from "../services/ServicesContext";
 
-const useAuth = () => {
-    const [isAuthenticated, setIsAuthenticated] = useState(null);
-    const { userService } = useContext(ServicesContext);
+const useAuth = (allowFirstFactor) => {
+	const [isAuthenticated, setIsAuthenticated] = useState(null);
+	const { userService } = useContext(ServicesContext);
 
-    useEffect(() => {
-        async function checkAuth() {
-            const authStatus = await userService.authenticated();
-            setIsAuthenticated(authStatus);
-        }
+	useEffect(() => {
+		async function checkAuth(allowFirstFactor) {
+			const authStatus = await userService.authenticated(
+				allowFirstFactor
+			);
+			setIsAuthenticated(authStatus);
+		}
 
-        checkAuth();
-    }, [userService]);
+		checkAuth(allowFirstFactor);
+	}, [userService, allowFirstFactor]);
 
-    return isAuthenticated;
-}
+	return isAuthenticated;
+};
 
 export default useAuth;

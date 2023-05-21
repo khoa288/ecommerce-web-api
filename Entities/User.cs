@@ -1,17 +1,18 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace LoginJWT.Models
+namespace LoginJWT.Entities
 {
     public class User
     {
         [Required]
-        public string UserName { get; set; }
+        public string UserName { get; set; } = null!;
+
         [Required]
-        public byte[] PasswordSalt { get; set; }
+        public byte[] PasswordSalt { get; set; } = null!;
+
         [Required]
-        public byte[] PasswordHash { get; set; }
-        [Required]
-        public bool IsFirstFactorChecked { get; set; }
+        public byte[] PasswordHash { get; set; } = null!;
+
         [Required]
         public bool IsTwoFactorAuthActivated { get; set; }
 

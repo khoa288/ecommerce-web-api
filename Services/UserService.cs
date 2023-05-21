@@ -1,24 +1,19 @@
-﻿using LoginJWT.Models;
+﻿using LoginJWT.Entities;
 
 namespace LoginJWT.Services
 {
     public class UserService
     {
         private static readonly List<User> UserList = new();
+
         public void AddUser(User newUser)
         {
-            try
-            {
-                UserList.Add(newUser);
-            }
-            catch
-            {
-                throw new Exception();
-            }
+            UserList.Add(newUser);
         }
 
         public User? GetUser(string? username = null, string? token = null)
         {
+            // Get user from username or refresh token
             try
             {
                 User? result = null;
@@ -33,7 +28,6 @@ namespace LoginJWT.Services
                 }
 
                 return result;
-
             }
             catch
             {
@@ -41,44 +35,37 @@ namespace LoginJWT.Services
             }
         }
 
-        public void UpdateUser(User user, string? token = null, DateTime? created = null, DateTime? expires = null)
+        public void UpdateUser(
+            User user,
+            string? token = null,
+            DateTime? created = null,
+            DateTime? expires = null
+        )
         {
-            try
+            // Update user's refresh token
+            if (token != null)
             {
-                if (token != null)
-                {
-                    user.Token = token;
-                }
-
-                if (created != null)
-                {
-                    user.TokenCreated = created.Value;
-                }
-
-                if (expires != null)
-                {
-                    user.TokenExpires = expires.Value;
-                }
+                user.Token = token;
             }
-            catch
+
+            if (created != null)
             {
-                throw new Exception();
+                user.TokenCreated = created.Value;
+            }
+
+            if (expires != null)
+            {
+                user.TokenExpires = expires.Value;
             }
         }
 
         public void UpdateTwoFactorAuth(User user)
         {
-            try
+            // Update user's two-factor-auth option
+            user.IsTwoFactorAuthActivated = !user.IsTwoFactorAuthActivated;
+            if (!user.IsTwoFactorAuthActivated)
             {
-                user.IsTwoFactorAuthActivated = !user.IsTwoFactorAuthActivated;
-                if (!user.IsTwoFactorAuthActivated)
-                {
-                    user.SecretCode = "";
-                }
-            }
-            catch
-            {
-                throw new Exception();
+                user.SecretCode = null;
             }
         }
     }

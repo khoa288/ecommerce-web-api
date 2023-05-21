@@ -1,4 +1,4 @@
-﻿using LoginJWT.Models;
+﻿using LoginJWT.Entities;
 using LoginJWT.Services;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -8,18 +8,6 @@ using System.Text;
 
 namespace LoginJWT.Utils
 {
-    public enum RefreshTokenResult
-    {
-        Success,
-        UserNotExist,
-        TokenExpire,
-        Other
-    }
-    public class RefreshTokenResponse
-    {
-        public RefreshTokenResult ResultCode;
-        public User? User;
-    }
     public class JWTHelper
     {
         private readonly AppSettings _applicationSettings;
@@ -30,63 +18,92 @@ namespace LoginJWT.Utils
             _applicationSettings = applicationSettings;
             _userService = userService;
         }
+
         public void SetRefreshToken(RefreshToken refreshToken, User user, HttpContext context)
         {
-            context.Response.Cookies.Append("refresh_token", refreshToken.Token,
-                 new CookieOptions
-                 {
-                     Expires = refreshToken.Expires,
-                     HttpOnly = true,
-                     Secure = true,
-                     IsEssential = true,
-                     SameSite = SameSiteMode.None
-                 });
-            _userService.UpdateUser(user,
+            // Set refresh token to cookie
+            context.Response.Cookies.Append(
+                "refresh_token",
+                refreshToken.Token,
+                new CookieOptions
+                {
+                    Expires = refreshToken.Expires,
+                    HttpOnly = true,
+                    Secure = true,
+                    IsEssential = true,
+                    SameSite = SameSiteMode.None
+                }
+            );
+
+            // Set refresh token to user
+            _userService.UpdateUser(
+                user,
                 token: refreshToken.Token,
                 created: refreshToken.Created,
-                expires: refreshToken.Expires);
+                expires: refreshToken.Expires
+            );
         }
 
         public void SetJWT(string encrypterToken, HttpContext context)
         {
-            context.Response.Cookies.Append("access_token", encrypterToken,
-                  new CookieOptions
-                  {
-                      Expires = DateTime.Now.AddMinutes(15),
-                      HttpOnly = true,
-                      Secure = true,
-                      IsEssential = true,
-                      SameSite = SameSiteMode.None
-                  });
+            // Set JWT to cookie
+            context.Response.Cookies.Append(
+                "access_token",
+                encrypterToken,
+                new CookieOptions
+                {
+                    Expires = DateTime.Now.AddMinutes(15),
+                    HttpOnly = true,
+                    Secure = true,
+                    IsEssential = true,
+                    SameSite = SameSiteMode.None
+                }
+            );
         }
 
-        public dynamic JWTGenerator(User user, HttpContext context)
+        public dynamic JWTGenerator(User user, bool isSecondFactorChecked, HttpContext context)
         {
+            // Create JWT
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_applicationSettings.Secret);
 
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                Subject = new ClaimsIdentity(new[] { new Claim("id", user.UserName) }),
-                Expires = DateTime.UtcNow.AddDays(7),
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha512Signature)
+                Subject = new ClaimsIdentity(
+                    new[]
+                    {
+                        new Claim("id", user.UserName),
+                        new Claim("status", isSecondFactorChecked.ToString())
+                    }
+                ),
+                Expires = DateTime.Now.AddMinutes(15),
+                SigningCredentials = new SigningCredentials(
+                    new SymmetricSecurityKey(key),
+                    SecurityAlgorithms.HmacSha512Signature
+                )
             };
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var encrypterToken = tokenHandler.WriteToken(token);
 
+            // Set JWT
             SetJWT(encrypterToken, context);
 
-            var refreshToken = GenerateRefreshToken();
+            // Create & set refresh token
+            if (isSecondFactorChecked)
+            {
+                var refreshToken = GenerateRefreshToken();
+                SetRefreshToken(refreshToken, user, context);
+            }
 
-            SetRefreshToken(refreshToken, user, context);
-
-            return new { token = encrypterToken, username = user.UserName };
+            return encrypterToken;
         }
 
         private static RefreshToken GenerateRefreshToken()
         {
-            var refreshToken = new RefreshToken(token: Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)))
+            // Create refresh token
+            var refreshToken = new RefreshToken()
             {
+                Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
                 Expires = DateTime.Now.AddDays(7),
                 Created = DateTime.Now
             };
@@ -94,75 +111,55 @@ namespace LoginJWT.Utils
             return refreshToken;
         }
 
-        public RefreshTokenResponse RefreshToken(HttpContext context)
+        public void RevokeToken(User user, HttpContext context)
         {
-            var result = new RefreshTokenResponse()
-            {
-                ResultCode = RefreshTokenResult.Other
-            };
-            try
-            {
-                var refreshToken = context.Request.Cookies["refresh_token"];
-                var user = _userService.GetUser(token: refreshToken);
-                result.User = user;
+            // Revoke all tokens from cookies and user
+            _userService.UpdateUser(user: user, token: "");
 
-                if (user == null)
-                {
-                    result.ResultCode = RefreshTokenResult.UserNotExist;
-                    return result;
-                }
-
-                if (user.TokenExpires < DateTime.Now)
-                {
-                    result.ResultCode = RefreshTokenResult.TokenExpire;
-                    return result;
-                }
-
-                JWTGenerator(user, context);
-                result.ResultCode = RefreshTokenResult.Success;
-                return result;
-            }
-            catch
-            {
-                return result;
-            }
-        }
-
-        public void RevokeToken(string username, HttpContext context)
-        {
-            try
-            {
-                User? user = _userService.GetUser(username);
-                if (user == null)
-                {
-                    throw new Exception();
-                }
-
-                _userService.UpdateUser(
-                  user: user,
-                  token: ""
-                  );
-
-                context.Response.Cookies.Delete("access_token");
-                context.Response.Cookies.Delete("refresh_token");
-            }
-            catch
-            {
-                throw new Exception();
-            }
+            context.Response.Cookies.Delete("access_token");
+            context.Response.Cookies.Delete("refresh_token");
         }
 
         public string? GetUsername(HttpContext context)
         {
+            // Get user from JWT
             var tokenString = context.Request.Cookies["access_token"];
             if (string.IsNullOrEmpty(tokenString))
             {
                 return null;
             }
 
-            var token = new JwtSecurityTokenHandler().ReadJwtToken(tokenString);
+            try
+            {
+                // Read token
+                var token = new JwtSecurityTokenHandler().ReadJwtToken(tokenString);
+                return token.Claims.First(x => x.Type == "id").Value;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
-            return token.Claims.First(x => x.Type == "id").Value;
+        public string? GetIsSecondFactorChecked(HttpContext context)
+        {
+            // Get auth status from JWT
+            var tokenString = context.Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(tokenString))
+            {
+                return null;
+            }
+
+            try
+            {
+                // Read token
+                var token = new JwtSecurityTokenHandler().ReadJwtToken(tokenString);
+                return token.Claims.First(x => x.Type == "status").Value;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }

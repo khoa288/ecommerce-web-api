@@ -12,7 +12,11 @@ namespace LoginJWT.Controllers
         private readonly AppSettings _applicationSettings;
         private readonly UserService _userService;
         private readonly JWTHelper _jwt;
-        public DashboardController(IOptions<AppSettings> applicationSettings, UserService userService)
+
+        public DashboardController(
+            IOptions<AppSettings> applicationSettings,
+            UserService userService
+        )
         {
             _applicationSettings = applicationSettings.Value;
             _userService = userService;
@@ -20,16 +24,30 @@ namespace LoginJWT.Controllers
         }
 
         [HttpGet("GetTime")]
-        public string GetTime()
+        public IActionResult GetTime()
         {
-            return DateTime.Now.ToString();
+            try
+            {
+                return Ok(DateTime.Now.ToString());
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
         }
 
         [HttpGet("GetUserName")]
         public IActionResult GetUserName()
         {
-            var username = _jwt.GetUsername(HttpContext);
-            return Ok(username);
+            try
+            {
+                var username = _jwt.GetUsername(HttpContext);
+                return Ok(username);
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
         }
     }
 }

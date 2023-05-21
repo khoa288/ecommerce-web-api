@@ -21,44 +21,106 @@ namespace LoginJWT.Utils
 
         public void OnAuthorization(AuthorizationFilterContext context)
         {
-            var accessTokenString = context.HttpContext.Request.Cookies["access_token"];
-            if (string.IsNullOrEmpty(accessTokenString))
-            {
-                var refreshTokenString = context.HttpContext.Request.Cookies["refresh_token"];
-                if (string.IsNullOrEmpty(refreshTokenString))
-                {
-                    context.Result = new JsonResult(new { message = "Unauthorized" }) { StatusCode = StatusCodes.Status401Unauthorized };
-                    return;
-                }
-
-                var user = _userService.GetUser(token: refreshTokenString);
-                if (user == null || user.TokenExpires < DateTime.Now)
-                {
-                    context.Result = new JsonResult(new { message = "Invalid Token" }) { StatusCode = StatusCodes.Status401Unauthorized };
-                    return;
-                }
-                else
-                {
-                    var generateToken = _jwt.JWTGenerator(user, context.HttpContext);
-                    accessTokenString = generateToken.token;
-                }
-            }
-
             try
             {
-                var accessToken = new JwtSecurityTokenHandler().ReadJwtToken(accessTokenString);
-                var accessTokenCheck = accessToken.Claims.FirstOrDefault(x => x.Type == "id");
-                if (accessTokenCheck == null || _userService.GetUser(username: accessTokenCheck.Value) == null)
+                // Check if allow anonymous
+                var allowAnonymous = context.ActionDescriptor.EndpointMetadata
+                    .OfType<AllowAnonymousAttribute>()
+                    .Any();
+                if (allowAnonymous)
                 {
-                    context.Result = new JsonResult(new { message = "Unauthorized" }) { StatusCode = StatusCodes.Status401Unauthorized };
                     return;
+                }
+
+                // Get access_token
+                var accessTokenString = context.HttpContext.Request.Cookies["access_token"];
+
+                // If access_token is empty
+                if (string.IsNullOrEmpty(accessTokenString))
+                {
+                    // Get refresh_token
+                    var refreshTokenString = context.HttpContext.Request.Cookies["refresh_token"];
+
+                    // If refresh_token is empty
+                    if (string.IsNullOrEmpty(refreshTokenString))
+                    {
+                        context.Result = new ContentResult()
+                        {
+                            Content = "Unauthorized",
+                            StatusCode = StatusCodes.Status401Unauthorized
+                        };
+                        return;
+                    }
+
+                    // Check refresh_token
+                    var user = _userService.GetUser(token: refreshTokenString);
+                    if (user == null || user.TokenExpires < DateTime.Now)
+                    {
+                        context.Result = new ContentResult()
+                        {
+                            Content = "Unauthorized",
+                            StatusCode = StatusCodes.Status401Unauthorized
+                        };
+                        return;
+                    }
+                    else
+                    {
+                        _jwt.JWTGenerator(user, true, context.HttpContext);
+                        return;
+                    }
+                }
+
+                // Check access_token
+                var accessToken = new JwtSecurityTokenHandler().ReadJwtToken(accessTokenString);
+                var accessTokenId = accessToken.Claims.FirstOrDefault(x => x.Type == "id");
+
+                if (
+                    accessTokenId == null
+                    || _userService.GetUser(username: accessTokenId.Value) == null
+                )
+                {
+                    context.Result = new ContentResult()
+                    {
+                        Content = "Unauthorized",
+                        StatusCode = StatusCodes.Status401Unauthorized
+                    };
+                    return;
+                }
+
+                // Check if allow only first factor checked
+                var allowFirstFactor = context.ActionDescriptor.EndpointMetadata
+                    .OfType<AllowFirstFactorAttribute>()
+                    .Any();
+                if (!allowFirstFactor)
+                {
+                    // Check if second factor checked
+                    var isSecondFactorChecked = _jwt.GetIsSecondFactorChecked(context.HttpContext);
+                    if (isSecondFactorChecked != "True")
+                    {
+                        context.Result = new ContentResult()
+                        {
+                            Content = "Unauthorized",
+                            StatusCode = StatusCodes.Status200OK
+                        };
+                        return;
+                    }
                 }
             }
             catch
             {
-                context.Result = new JsonResult(new { message = "Invalid Token" }) { StatusCode = StatusCodes.Status401Unauthorized };
+                context.Result = new ContentResult()
+                {
+                    Content = "Unauthorized",
+                    StatusCode = StatusCodes.Status401Unauthorized
+                };
                 return;
             }
         }
     }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class AllowAnonymousAttribute : Attribute { }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class AllowFirstFactorAttribute : Attribute { }
 }

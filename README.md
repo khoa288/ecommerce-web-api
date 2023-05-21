@@ -63,21 +63,17 @@ Now, you can access the application in your browser at `http://localhost:3001`.
 ### Backend
 
 - ASP.NET 6.0 for building the API
-- JWT and refresh tokens for authentication
+- JWT and refresh tokens stored in HTTP only cookie for authentication
 - Time-based OTP for two-factor authentication
-- HTTP only cookie for storing JWT and refresh tokens
-- Authentication filter for checking if the user is logged in
-- CORS policy for allowing requests from the frontend
+- Custom API Filters for handling user's authentication status
 
 ### Frontend
 
 - ReactJS for building the UI
 - Responsive design using Bootstrap
 - Dependency Injection/Service pattern inspired by Angular
-- Login page, Register page and Dashboard
-- Dashboard accessible only when logged in
+- Pages are accessible based on user's authentication status
 - Two-factor authentication handling:
-  - Switching between two-factor authentication enabled and disabled
   - Displaying QR code for scanning with an authenticator app
   - Requiring OTP input when two-factor authentication is enabled
 

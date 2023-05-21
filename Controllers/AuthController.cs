@@ -1,4 +1,5 @@
-﻿using LoginJWT.Models;
+﻿using LoginJWT.Entities;
+using LoginJWT.Models;
 using LoginJWT.Services;
 using LoginJWT.Utils;
 using Microsoft.AspNetCore.Mvc;
@@ -7,15 +8,20 @@ using System.Security.Cryptography;
 
 namespace LoginJWT.Controllers
 {
+    [ServiceFilter(typeof(AuthorizeFilter))]
     [Controller]
     public class AuthController : Controller
     {
         private readonly AppSettings _applicationSettings;
         private readonly UserService _userService;
-        private readonly TwoFactorAuthService _twoFactorAuthService;
+        private readonly SecondFactorAuthService _twoFactorAuthService;
         private readonly JWTHelper _jwt;
 
-        public AuthController(IOptions<AppSettings> applicationSettings, UserService userService, TwoFactorAuthService twoFactorAuthService)
+        public AuthController(
+            IOptions<AppSettings> applicationSettings,
+            UserService userService,
+            SecondFactorAuthService twoFactorAuthService
+        )
         {
             _applicationSettings = applicationSettings.Value;
             _userService = userService;
@@ -23,185 +29,266 @@ namespace LoginJWT.Controllers
             _jwt = new JWTHelper(_applicationSettings, _userService);
         }
 
+        private User? GetUserFromJWT()
+        {
+            var username = _jwt.GetUsername(HttpContext);
+            var user = _userService.GetUser(username);
+            return user;
+        }
+
+        [AllowAnonymous]
         [HttpPost("Login")]
-        public IActionResult Login([FromBody] Login model)
-        {
-            var user = _userService.GetUser(username: model.UserName);
-
-            if (user == null)
-            {
-                return BadRequest("Username Or Password Was Invalid");
-            }
-
-            // Check password & two-factor authentication
-            using HMACSHA512? hmac = new(key: user.PasswordSalt);
-            var compute = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(model.Password));
-
-            var match = compute.SequenceEqual(user.PasswordHash);
-            if (!match)
-            {
-                return BadRequest("Username Or Password Was Invalid");
-            }
-            else if (user.IsTwoFactorAuthActivated)
-            {
-                user.IsFirstFactorChecked = true;
-                return Ok("Unauthorized");
-            }
-
-            _jwt.JWTGenerator(user, HttpContext);
-
-            return Ok("Success");
-        }
-
-        [HttpPost("LoginSecondFactor")]
-        public IActionResult LoginSecondFactor([FromBody] TwoFactorAuth model)
-        {
-            var user = _userService.GetUser(username: model.UserName);
-            if (user == null || !user.IsTwoFactorAuthActivated || !user.IsFirstFactorChecked)
-            {
-                return BadRequest("Unauthorized");
-            }
-            else
-            {
-                bool validated = _twoFactorAuthService.ValidateTotp(base32Secret: user.SecretCode, totp: model.Totp);
-                if (!validated)
-                {
-                    return BadRequest("Invalid OTP");
-                }
-                _jwt.JWTGenerator(user, HttpContext);
-                user.IsFirstFactorChecked = false;
-                return Ok("Success");
-            }
-        }
-
-        [HttpGet("RefreshToken")]
-        public ActionResult<string> RefreshToken()
-        {
-            var result = _jwt.RefreshToken(HttpContext);
-            switch (result.ResultCode)
-            {
-                case RefreshTokenResult.Success:
-                    return Ok("Success");
-
-                case RefreshTokenResult.UserNotExist:
-                    return BadRequest("UserNotExist");
-
-                case RefreshTokenResult.TokenExpire:
-                    _jwt.RevokeToken(result.User.UserName, HttpContext);
-                    return BadRequest("TokenExpire");
-
-                case RefreshTokenResult.Other:
-                default:
-                    return BadRequest("Fail");
-            }
-        }
-
-        [ServiceFilter(typeof(AuthorizeFilter))]
-        [HttpDelete("RevokeToken/{username}")]
-        public IActionResult RevokeToken(string username)
+        public IActionResult Login([FromBody] LoginRequest model)
         {
             try
             {
-                _jwt.RevokeToken(username, HttpContext);
+                // Check username
+                var user = _userService.GetUser(username: model.UserName);
+                if (user == null)
+                {
+                    return BadRequest("Username Or Password Is Invalid");
+                }
+
+                // Check password & two-factor authentication
+                using HMACSHA512? hmac = new(key: user.PasswordSalt);
+                var compute = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(model.Password));
+                var match = compute.SequenceEqual(user.PasswordHash);
+                if (!match)
+                {
+                    return BadRequest("Username Or Password Is Invalid");
+                }
+                else if (user.IsTwoFactorAuthActivated)
+                {
+                    // Generate JWT requiring second auth factor
+                    _jwt.JWTGenerator(user, false, HttpContext);
+                    return Ok("Unauthorized");
+                }
+
+                // Generate JWT providing access
+                _jwt.JWTGenerator(user, true, HttpContext);
+
                 return Ok();
             }
             catch
             {
-                return BadRequest();
+                return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
-        [HttpPost("Register")]
-        public IActionResult Register([FromBody] Register model)
+        [AllowFirstFactor]
+        [HttpPost("LoginSecondFactor")]
+        public IActionResult LoginSecondFactor([FromBody] SecondFactorAuthRequest model)
         {
-            var user = new User { UserName = model.Username };
-
-            if (model.ConfirmPassword == model.Password)
+            try
             {
-                using (HMACSHA512? hmac = new())
+                // If request doesm't contain username
+                if (model.UserName == null)
                 {
-                    user.PasswordSalt = hmac.Key;
-                    user.PasswordHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(model.Password));
+                    model.UserName = _jwt.GetUsername(HttpContext);
                 }
 
-                user.IsFirstFactorChecked = false;
-                user.IsTwoFactorAuthActivated = false;
+                // Check username
+                var user = _userService.GetUser(username: model.UserName);
+                if (user == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
+
+                // Validate TOTP
+                bool validated = _twoFactorAuthService.ValidateTotp(
+                    base32Secret: user.SecretCode,
+                    totp: model.Totp
+                );
+                if (!validated)
+                {
+                    return BadRequest("Invalid OTP");
+                }
+
+                // Revoke and generate new JWT providing access
+                _jwt.RevokeToken(user, HttpContext);
+                _jwt.JWTGenerator(user, true, HttpContext);
+
+                return Ok();
             }
-            else
+            catch
             {
-                return BadRequest("Passwords Don't Match");
+                return StatusCode(StatusCodes.Status500InternalServerError);
             }
+        }
 
-            _userService.AddUser(user);
+        [AllowAnonymous]
+        [HttpPost("Register")]
+        public IActionResult Register([FromBody] RegisterRequest model)
+        {
+            try
+            {
+                // Check if username is taken
+                var username = model.Username;
+                if (_userService.GetUser(username) != null)
+                {
+                    return BadRequest("Username is not available");
+                }
 
+                // Validate password & construct new user
+                var user = new User { UserName = username };
+                if (model.ConfirmPassword == model.Password)
+                {
+                    using (HMACSHA512? hmac = new())
+                    {
+                        user.PasswordSalt = hmac.Key;
+                        user.PasswordHash = hmac.ComputeHash(
+                            System.Text.Encoding.UTF8.GetBytes(model.Password)
+                        );
+                    }
+
+                    user.IsTwoFactorAuthActivated = false;
+                }
+                else
+                {
+                    return BadRequest("Passwords Don't Match");
+                }
+
+                // Add new user
+                _userService.AddUser(user);
+
+                return Ok();
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
+        }
+
+        [HttpDelete("RevokeToken")]
+        public IActionResult RevokeToken()
+        {
+            try
+            {
+                // Get user from JWT
+                var user = GetUserFromJWT();
+                if (user == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
+
+                // Revoke all tokens
+                _jwt.RevokeToken(user, HttpContext);
+                return Ok();
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
+        }
+
+        [HttpGet("IsAuthenticated")]
+        public IActionResult IsAuthenticated()
+        {
+            // Return status 200 with no content if user is authenticated
+            // Return status 200 with "Unauthorized" if user needs second factor auth
+            // Return status 401 if user is not authenticated
             return Ok();
         }
 
-        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpGet("GetQrCodeValue")]
         public IActionResult GetSecretCode()
         {
-            var username = _jwt.GetUsername(HttpContext);
-            var user = _userService.GetUser(username);
-            if (user == null)
+            try
             {
-                return BadRequest("Unauthorized");
+                // Get user from JWT
+                var user = GetUserFromJWT();
+                if (user == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
+
+                // Generate secret & QR code
+                user.SecretCode = _twoFactorAuthService.GenerateBase32Secret();
+                var uriString = _twoFactorAuthService.GenerateQrCodeValue(
+                    base32Secret: user.SecretCode,
+                    username: user.UserName
+                );
+                return Ok(uriString);
             }
-            user.SecretCode = _twoFactorAuthService.GenerateBase32Secret();
-            var uriString = _twoFactorAuthService.GenerateQrCodeValue(base32Secret: user.SecretCode, username: username);
-            return Ok(uriString);
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
         }
 
+        [AllowFirstFactor]
         [HttpPost("ValidateTotp")]
-        public IActionResult ValidateTotp([FromBody] TwoFactorAuth model)
+        public IActionResult ValidateTotp([FromBody] SecondFactorAuthRequest model)
         {
-            var username = _jwt.GetUsername(HttpContext);
-
-            var user = _userService.GetUser(username);
-            if (user == null)
+            try
             {
-                return BadRequest("Unauthorized");
-            }
+                // Get user from JWT
+                var user = GetUserFromJWT();
+                if (user == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
 
-            bool validated = _twoFactorAuthService.ValidateTotp(base32Secret: user.SecretCode, totp: model.Totp);
-            if (!validated)
+                // Validate TOTP
+                bool validated = _twoFactorAuthService.ValidateTotp(
+                    base32Secret: user.SecretCode,
+                    totp: model.Totp
+                );
+                if (!validated)
+                {
+                    return BadRequest("Invalid OTP");
+                }
+
+                return Ok();
+            }
+            catch
             {
-                return BadRequest("Invalid OTP");
+                return StatusCode(StatusCodes.Status500InternalServerError);
             }
-
-            return Ok();
         }
 
-        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpPost("ChangeTwoFactorAuth")]
         public IActionResult ChangeTwoFactorAuth()
         {
-            var username = _jwt.GetUsername(HttpContext);
-
-            var user = _userService.GetUser(username);
-            if (user == null)
+            try
             {
-                return BadRequest("Unauthorized");
-            }
+                // Get user from JWT
+                var user = GetUserFromJWT();
+                if (user == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
 
-            _userService.UpdateTwoFactorAuth(user);
-            return Ok();
+                // Change user's two factor auth option
+                _userService.UpdateTwoFactorAuth(user);
+                return Ok();
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
         }
 
-        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpGet("GetTwoFactorAuth")]
         public IActionResult GetTwoFactorAuthStatus()
         {
-            var username = _jwt.GetUsername(HttpContext);
-
-            var user = _userService.GetUser(username);
-            if (user == null)
+            try
             {
-                return BadRequest("Unauthorized");
-            }
+                // Get user form JWT
+                var user = GetUserFromJWT();
+                if (user == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
 
-            var status = user.IsTwoFactorAuthActivated;
-            return Ok(status.ToString());
+                // Get user's two factor auth option
+                var status = user.IsTwoFactorAuthActivated;
+                return Ok(status.ToString());
+            }
+            catch
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
         }
     }
 }
