@@ -8,16 +8,27 @@ using System.Text;
 
 namespace LoginJWT.Utils
 {
+    public enum RefreshTokenResult
+    {
+        Success,
+        UserNotExist,
+        TokenExpire,
+        Other
+    }
+    public class RefreshTokenResponse
+    {
+        public RefreshTokenResult ResultCode;
+        public User? User;
+    }
     public class JWTHelper
     {
         private readonly AppSettings _applicationSettings;
         private readonly UserService _userService;
-        private readonly HttpClient _httpClient;
-        public JWTHelper(AppSettings applicationSettings, HttpClient httpClient)
+
+        public JWTHelper(AppSettings applicationSettings, UserService userService)
         {
-            this._applicationSettings = applicationSettings;
-            this._userService = new UserService();
-            this._httpClient = httpClient;
+            _applicationSettings = applicationSettings;
+            _userService = userService;
         }
         public void SetRefreshToken(RefreshToken refreshToken, User user, HttpContext context)
         {
@@ -72,6 +83,16 @@ namespace LoginJWT.Utils
             return new { token = encrypterToken, username = user.UserName };
         }
 
+        private static RefreshToken GenerateRefreshToken()
+        {
+            var refreshToken = new RefreshToken(token: Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)))
+            {
+                Expires = DateTime.Now.AddDays(7),
+                Created = DateTime.Now
+            };
+
+            return refreshToken;
+        }
 
         public RefreshTokenResponse RefreshToken(HttpContext context)
         {
@@ -103,27 +124,31 @@ namespace LoginJWT.Utils
             }
             catch
             {
-                return result;      
+                return result;
             }
         }
 
-        public int RevokeToken(string username, HttpContext context)
+        public void RevokeToken(string username, HttpContext context)
         {
             try
             {
+                User? user = _userService.GetUser(username);
+                if (user == null)
+                {
+                    throw new Exception();
+                }
+
                 _userService.UpdateUser(
-                  user: _userService.GetUser(username: username),
+                  user: user,
                   token: ""
                   );
 
                 context.Response.Cookies.Delete("access_token");
                 context.Response.Cookies.Delete("refresh_token");
-
-                return 0;
             }
             catch
             {
-                return -1;
+                throw new Exception();
             }
         }
 
@@ -138,18 +163,6 @@ namespace LoginJWT.Utils
             var token = new JwtSecurityTokenHandler().ReadJwtToken(tokenString);
 
             return token.Claims.First(x => x.Type == "id").Value;
-        }
-
-        private RefreshToken GenerateRefreshToken()
-        {
-            var refreshToken = new RefreshToken()
-            {
-                Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
-                Expires = DateTime.Now.AddDays(7),
-                Created = DateTime.Now
-            };
-
-            return refreshToken;
         }
     }
 }

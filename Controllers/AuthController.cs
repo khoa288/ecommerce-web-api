@@ -11,14 +11,16 @@ namespace LoginJWT.Controllers
     public class AuthController : Controller
     {
         private readonly AppSettings _applicationSettings;
-        private readonly UserService _userService = new UserService();
-        private readonly OtpService _otpService = new OtpService();
+        private readonly UserService _userService;
+        private readonly TwoFactorAuthService _twoFactorAuthService;
         private readonly JWTHelper _jwt;
 
-        public AuthController(IOptions<AppSettings> applicationSettings, HttpClient httpClient)
+        public AuthController(IOptions<AppSettings> applicationSettings, UserService userService, TwoFactorAuthService twoFactorAuthService)
         {
-            this._applicationSettings = applicationSettings.Value;
-            _jwt = new JWTHelper(this._applicationSettings, httpClient);
+            _applicationSettings = applicationSettings.Value;
+            _userService = userService;
+            _twoFactorAuthService = twoFactorAuthService;
+            _jwt = new JWTHelper(_applicationSettings, _userService);
         }
 
         [HttpPost("Login")]
@@ -34,6 +36,7 @@ namespace LoginJWT.Controllers
             // Check password & two-factor authentication
             using HMACSHA512? hmac = new(key: user.PasswordSalt);
             var compute = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(model.Password));
+
             var match = compute.SequenceEqual(user.PasswordHash);
             if (!match)
             {
@@ -44,6 +47,7 @@ namespace LoginJWT.Controllers
                 user.IsFirstFactorChecked = true;
                 return Ok("Unauthorized");
             }
+
             _jwt.JWTGenerator(user, HttpContext);
 
             return Ok("Success");
@@ -53,13 +57,13 @@ namespace LoginJWT.Controllers
         public IActionResult LoginSecondFactor([FromBody] TwoFactorAuth model)
         {
             var user = _userService.GetUser(username: model.UserName);
-            if (user == null || !user.IsTwoFactorAuthActivated)
+            if (user == null || !user.IsTwoFactorAuthActivated || !user.IsFirstFactorChecked)
             {
                 return BadRequest("Unauthorized");
-            } 
+            }
             else
             {
-                bool validated = _otpService.ValidateTotp(base32Secret: user.SecretCode, totp: model.Totp);
+                bool validated = _twoFactorAuthService.ValidateTotp(base32Secret: user.SecretCode, totp: model.Totp);
                 if (!validated)
                 {
                     return BadRequest("Invalid OTP");
@@ -80,38 +84,46 @@ namespace LoginJWT.Controllers
                     return Ok("Success");
 
                 case RefreshTokenResult.UserNotExist:
-                    return Ok("UserNotExist");
+                    return BadRequest("UserNotExist");
 
                 case RefreshTokenResult.TokenExpire:
                     _jwt.RevokeToken(result.User.UserName, HttpContext);
-                    return Ok("TokenExpire");
+                    return BadRequest("TokenExpire");
 
                 case RefreshTokenResult.Other:
                 default:
-                    return Ok("Fail");
+                    return BadRequest("Fail");
             }
         }
 
+        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpDelete("RevokeToken/{username}")]
         public IActionResult RevokeToken(string username)
         {
-            _jwt.RevokeToken(username, HttpContext);
-            return Ok();
+            try
+            {
+                _jwt.RevokeToken(username, HttpContext);
+                return Ok();
+            }
+            catch
+            {
+                return BadRequest();
+            }
         }
 
         [HttpPost("Register")]
         public IActionResult Register([FromBody] Register model)
         {
-            var user = new User { UserName = model.UserName };
+            var user = new User { UserName = model.Username };
 
             if (model.ConfirmPassword == model.Password)
             {
-                using (HMACSHA512? hmac = new HMACSHA512())
+                using (HMACSHA512? hmac = new())
                 {
                     user.PasswordSalt = hmac.Key;
                     user.PasswordHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(model.Password));
                 }
-                user.SecretCode = _otpService.GenerateBase32Secret();
+
                 user.IsFirstFactorChecked = false;
                 user.IsTwoFactorAuthActivated = false;
             }
@@ -125,13 +137,7 @@ namespace LoginJWT.Controllers
             return Ok();
         }
 
-        [HttpGet("GetUserName")]
-        public IActionResult GetUserName()
-        {
-            var username = _jwt.GetUsername(HttpContext);
-            return Ok(username);
-        }
-
+        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpGet("GetQrCodeValue")]
         public IActionResult GetSecretCode()
         {
@@ -141,7 +147,8 @@ namespace LoginJWT.Controllers
             {
                 return BadRequest("Unauthorized");
             }
-            var uriString = _otpService.GenerateQrCodeValue(base32Secret: user.SecretCode, username: username);
+            user.SecretCode = _twoFactorAuthService.GenerateBase32Secret();
+            var uriString = _twoFactorAuthService.GenerateQrCodeValue(base32Secret: user.SecretCode, username: username);
             return Ok(uriString);
         }
 
@@ -149,13 +156,14 @@ namespace LoginJWT.Controllers
         public IActionResult ValidateTotp([FromBody] TwoFactorAuth model)
         {
             var username = _jwt.GetUsername(HttpContext);
+
             var user = _userService.GetUser(username);
             if (user == null)
             {
                 return BadRequest("Unauthorized");
             }
 
-            bool validated = _otpService.ValidateTotp(base32Secret: user.SecretCode, totp: model.Totp);
+            bool validated = _twoFactorAuthService.ValidateTotp(base32Secret: user.SecretCode, totp: model.Totp);
             if (!validated)
             {
                 return BadRequest("Invalid OTP");
@@ -164,30 +172,34 @@ namespace LoginJWT.Controllers
             return Ok();
         }
 
+        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpPost("ChangeTwoFactorAuth")]
         public IActionResult ChangeTwoFactorAuth()
         {
             var username = _jwt.GetUsername(HttpContext);
+
             var user = _userService.GetUser(username);
             if (user == null)
             {
                 return BadRequest("Unauthorized");
             }
-            user.SecretCode = _otpService.GenerateBase32Secret();
-            _userService.UpdateTwoFactorAuth(user);
 
+            _userService.UpdateTwoFactorAuth(user);
             return Ok();
         }
 
+        [ServiceFilter(typeof(AuthorizeFilter))]
         [HttpGet("GetTwoFactorAuth")]
         public IActionResult GetTwoFactorAuthStatus()
         {
             var username = _jwt.GetUsername(HttpContext);
+
             var user = _userService.GetUser(username);
             if (user == null)
             {
                 return BadRequest("Unauthorized");
             }
+
             var status = user.IsTwoFactorAuthActivated;
             return Ok(status.ToString());
         }

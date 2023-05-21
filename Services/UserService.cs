@@ -4,19 +4,17 @@ namespace LoginJWT.Services
 {
     public class UserService
     {
-        private static List<User> UserList = new List<User>();
-        public int AddUser(User newUser)
+        private static readonly List<User> UserList = new();
+        public void AddUser(User newUser)
         {
             try
             {
                 UserList.Add(newUser);
-                return 0;
             }
-            catch (Exception ex)
+            catch
             {
-                return -1;
+                throw new Exception();
             }
-
         }
 
         public User? GetUser(string? username = null, string? token = null)
@@ -43,7 +41,7 @@ namespace LoginJWT.Services
             }
         }
 
-        public int UpdateUser(User user, string? token = null, DateTime? created = null, DateTime? expires = null)
+        public void UpdateUser(User user, string? token = null, DateTime? created = null, DateTime? expires = null)
         {
             try
             {
@@ -61,18 +59,27 @@ namespace LoginJWT.Services
                 {
                     user.TokenExpires = expires.Value;
                 }
-
-                return 0;
             }
             catch
             {
-                return -1;
+                throw new Exception();
             }
         }
 
         public void UpdateTwoFactorAuth(User user)
         {
-            user.IsTwoFactorAuthActivated = !user.IsTwoFactorAuthActivated;
+            try
+            {
+                user.IsTwoFactorAuthActivated = !user.IsTwoFactorAuthActivated;
+                if (!user.IsTwoFactorAuthActivated)
+                {
+                    user.SecretCode = "";
+                }
+            }
+            catch
+            {
+                throw new Exception();
+            }
         }
     }
 }

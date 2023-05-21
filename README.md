@@ -66,6 +66,8 @@ Now, you can access the application in your browser at `http://localhost:3001`.
 - JWT and refresh tokens for authentication
 - Time-based OTP for two-factor authentication
 - HTTP only cookie for storing JWT and refresh tokens
+- Authentication filter for checking if the user is logged in
+- CORS policy for allowing requests from the frontend
 
 ### Frontend
 
