@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace LoginJWT.Entities
+namespace LoginForm.Entities
 {
     public class RefreshToken
     {

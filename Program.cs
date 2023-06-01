@@ -1,6 +1,6 @@
-using LoginJWT;
-using LoginJWT.Services;
-using LoginJWT.Utils;
+using LoginForm;
+using LoginForm.Services;
+using LoginForm.Utils;
 
 var builder = WebApplication.CreateBuilder(args);
 ConfigurationManager configuration = builder.Configuration;

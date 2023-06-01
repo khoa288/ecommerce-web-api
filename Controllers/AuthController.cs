@@ -1,12 +1,12 @@
-﻿using LoginJWT.Entities;
-using LoginJWT.Models;
-using LoginJWT.Services;
-using LoginJWT.Utils;
+﻿using LoginForm.Entities;
+using LoginForm.Models;
+using LoginForm.Services;
+using LoginForm.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 
-namespace LoginJWT.Controllers
+namespace LoginForm.Controllers
 {
     [ServiceFilter(typeof(AuthorizeFilter))]
     [Controller]

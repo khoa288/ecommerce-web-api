@@ -1,10 +1,10 @@
-﻿using LoginJWT.Services;
+﻿using LoginForm.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Options;
 using System.IdentityModel.Tokens.Jwt;
 
-namespace LoginJWT.Utils
+namespace LoginForm.Utils
 {
     public class AuthorizeFilter : IAuthorizationFilter
     {

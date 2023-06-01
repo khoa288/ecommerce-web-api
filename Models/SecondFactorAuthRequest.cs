@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace LoginJWT.Models
+namespace LoginForm.Models
 {
     public class SecondFactorAuthRequest
     {

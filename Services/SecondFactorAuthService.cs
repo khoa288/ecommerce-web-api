@@ -2,7 +2,7 @@
 using System.Globalization;
 using System.Web;
 
-namespace LoginJWT.Services
+namespace LoginForm.Services
 {
     public class SecondFactorAuthService
     {

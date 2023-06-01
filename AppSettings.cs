@@ -1,4 +1,4 @@
-﻿namespace LoginJWT
+﻿namespace LoginForm
 {
     public class AppSettings
     {

@@ -1,12 +1,12 @@
-﻿using LoginJWT.Entities;
-using LoginJWT.Services;
+﻿using LoginForm.Entities;
+using LoginForm.Services;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace LoginJWT.Utils
+namespace LoginForm.Utils
 {
     public class JWTHelper
     {

@@ -1,6 +1,6 @@
-﻿using LoginJWT.Entities;
+﻿using LoginForm.Entities;
 
-namespace LoginJWT.Services
+namespace LoginForm.Services
 {
     public class UserService
     {

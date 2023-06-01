@@ -13,13 +13,31 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Installation
 
-1. Clone the repository
+1. Clone the repository:
 
 ```
 git clone https://github.com/MKhoaaa/login-form.git
 ```
 
-2. Install frontend dependencies
+2. Set up the required environment variables `SECRET_ENV_VARIABLE` used for encrypting and decrypting JWT:
+
+#### Windows (Command Prompt)
+```
+setx SECRET_ENV_VARIABLE "your_secret_value"
+```
+
+#### Windows (PowerShell)
+```powershell
+[Environment]::SetEnvironmentVariable("SECRET_ENV_VARIABLE", "your_secret_value", "User")
+```
+
+#### macOS and Linux
+```bash
+export SECRET_ENV_VARIABLE="your_secret_value"
+```
+Remember to restart your terminal or IDE after setting environment variables so that they take effect.
+
+3. Install frontend dependencies:
 
 ```
 cd client
@@ -30,13 +48,13 @@ npm install
 
 ### Backend
 
-1. Make sure you are in the root folder of the project
+1. Make sure you are in the root folder of the project:
 
 ```
 cd ..
 ```
 
-2. Run the backend on port 3000
+2. Run the backend on port 3000:
 
 ```
 dotnet run
@@ -44,13 +62,13 @@ dotnet run
 
 ### Frontend
 
-1. Make sure you are in the `client` folder
+1. Make sure you are in the `client` folder:
 
 ```
 cd client
 ```
 
-2. Run the frontend on port 3001
+2. Run the frontend on port 3001:
 
 ```
 npm start
