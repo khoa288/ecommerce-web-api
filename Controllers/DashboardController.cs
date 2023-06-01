@@ -23,6 +23,7 @@ namespace LoginJWT.Controllers
             _jwt = new JWTHelper(_applicationSettings, _userService);
         }
 
+        [AllowAnonymous]
         [HttpGet("GetTime")]
         public IActionResult GetTime()
         {
@@ -36,6 +37,7 @@ namespace LoginJWT.Controllers
             }
         }
 
+        [AllowFirstFactor]
         [HttpGet("GetUserName")]
         public IActionResult GetUserName()
         {

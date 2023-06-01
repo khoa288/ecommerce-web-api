@@ -36,12 +36,7 @@ namespace LoginJWT.Utils
             );
 
             // Set refresh token to user
-            _userService.UpdateUser(
-                user,
-                token: refreshToken.Token,
-                created: refreshToken.Created,
-                expires: refreshToken.Expires
-            );
+            _userService.UpdateUser(user, refreshToken: refreshToken);
         }
 
         public void SetJWT(string encrypterToken, HttpContext context)
@@ -114,7 +109,7 @@ namespace LoginJWT.Utils
         public void RevokeToken(User user, HttpContext context)
         {
             // Revoke all tokens from cookies and user
-            _userService.UpdateUser(user: user, token: "");
+            _userService.UpdateUser(user, refreshToken: null);
 
             context.Response.Cookies.Delete("access_token");
             context.Response.Cookies.Delete("refresh_token");

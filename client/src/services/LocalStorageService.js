@@ -1,15 +1,15 @@
 class LocalStorageService {
-	setUsername(username) {
-		localStorage.setItem("username", username);
-	}
+    setUsername(username) {
+        localStorage.setItem("username", username);
+    }
 
-	getUsername() {
-		return localStorage.getItem("username");
-	}
+    getUsername() {
+        return localStorage.getItem("username");
+    }
 
-	removeUsername() {
-		localStorage.removeItem("username");
-	}
+    removeUsername() {
+        localStorage.removeItem("username");
+    }
 }
 
 export default LocalStorageService;

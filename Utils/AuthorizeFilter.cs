@@ -54,7 +54,7 @@ namespace LoginJWT.Utils
 
                     // Check refresh_token
                     var user = _userService.GetUser(token: refreshTokenString);
-                    if (user == null || user.TokenExpires < DateTime.Now)
+                    if (user == null || user.RefreshToken.Expires < DateTime.Now)
                     {
                         context.Result = new ContentResult()
                         {
@@ -65,7 +65,7 @@ namespace LoginJWT.Utils
                     }
                     else
                     {
-                        _jwt.JWTGenerator(user, true, context.HttpContext);
+                        _jwt.JWTGenerator(user, isSecondFactorChecked: true, context.HttpContext);
                         return;
                     }
                 }

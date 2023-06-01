@@ -5,7 +5,7 @@ namespace LoginJWT.Models
     public class RegisterRequest
     {
         [Required]
-        public string Username { get; set; } = null!;
+        public string UserName { get; set; } = null!;
 
         [Required]
         public string Password { get; set; } = null!;

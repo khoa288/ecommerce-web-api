@@ -6,6 +6,8 @@ namespace LoginJWT.Models
     {
         public string? UserName { get; set; }
 
+        public string? QrCode { get; set; }
+
         [Required]
         public string Totp { get; set; } = null!;
     }

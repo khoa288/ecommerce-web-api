@@ -24,7 +24,7 @@ namespace LoginJWT.Services
 
                 if (!string.IsNullOrEmpty(token))
                 {
-                    result = UserList.FirstOrDefault(x => x.Token == token);
+                    result = UserList.FirstOrDefault(x => x.RefreshToken.Token == token);
                 }
 
                 return result;
@@ -35,27 +35,16 @@ namespace LoginJWT.Services
             }
         }
 
-        public void UpdateUser(
-            User user,
-            string? token = null,
-            DateTime? created = null,
-            DateTime? expires = null
-        )
+        public void UpdateUser(User user, RefreshToken? refreshToken)
         {
             // Update user's refresh token
-            if (token != null)
+            if (refreshToken != null)
             {
-                user.Token = token;
+                user.RefreshToken = refreshToken;
             }
-
-            if (created != null)
+            else
             {
-                user.TokenCreated = created.Value;
-            }
-
-            if (expires != null)
-            {
-                user.TokenExpires = expires.Value;
+                user.RefreshToken.Token = "";
             }
         }
 

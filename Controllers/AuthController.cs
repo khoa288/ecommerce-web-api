@@ -32,7 +32,7 @@ namespace LoginJWT.Controllers
         private User? GetUserFromJWT()
         {
             var username = _jwt.GetUsername(HttpContext);
-            var user = _userService.GetUser(username);
+            var user = _userService.GetUser(username: username);
             return user;
         }
 
@@ -46,7 +46,7 @@ namespace LoginJWT.Controllers
                 var user = _userService.GetUser(username: model.UserName);
                 if (user == null)
                 {
-                    return BadRequest("Username Or Password Is Invalid");
+                    return BadRequest("Username or Password is invalid");
                 }
 
                 // Check password & two-factor authentication
@@ -55,17 +55,17 @@ namespace LoginJWT.Controllers
                 var match = compute.SequenceEqual(user.PasswordHash);
                 if (!match)
                 {
-                    return BadRequest("Username Or Password Is Invalid");
+                    return BadRequest("Username or Password is invalid");
                 }
                 else if (user.IsTwoFactorAuthActivated)
                 {
                     // Generate JWT requiring second auth factor
-                    _jwt.JWTGenerator(user, false, HttpContext);
+                    _jwt.JWTGenerator(user, isSecondFactorChecked: false, HttpContext);
                     return Ok("Unauthorized");
                 }
 
                 // Generate JWT providing access
-                _jwt.JWTGenerator(user, true, HttpContext);
+                _jwt.JWTGenerator(user, isSecondFactorChecked: true, HttpContext);
 
                 return Ok();
             }
@@ -81,7 +81,7 @@ namespace LoginJWT.Controllers
         {
             try
             {
-                // If request doesm't contain username
+                // If request doesn't contain username
                 if (model.UserName == null)
                 {
                     model.UserName = _jwt.GetUsername(HttpContext);
@@ -106,7 +106,7 @@ namespace LoginJWT.Controllers
 
                 // Revoke and generate new JWT providing access
                 _jwt.RevokeToken(user, HttpContext);
-                _jwt.JWTGenerator(user, true, HttpContext);
+                _jwt.JWTGenerator(user, isSecondFactorChecked: true, HttpContext);
 
                 return Ok();
             }
@@ -123,8 +123,8 @@ namespace LoginJWT.Controllers
             try
             {
                 // Check if username is taken
-                var username = model.Username;
-                if (_userService.GetUser(username) != null)
+                var username = model.UserName;
+                if (_userService.GetUser(username: username) != null)
                 {
                     return BadRequest("Username is not available");
                 }
@@ -145,7 +145,7 @@ namespace LoginJWT.Controllers
                 }
                 else
                 {
-                    return BadRequest("Passwords Don't Match");
+                    return BadRequest("Passwords don't match");
                 }
 
                 // Add new user
@@ -190,8 +190,8 @@ namespace LoginJWT.Controllers
             return Ok();
         }
 
-        [HttpGet("GetQrCodeValue")]
-        public IActionResult GetSecretCode()
+        [HttpGet("GetQrCode")]
+        public IActionResult GetQrCode()
         {
             try
             {
@@ -203,9 +203,8 @@ namespace LoginJWT.Controllers
                 }
 
                 // Generate secret & QR code
-                user.SecretCode = _twoFactorAuthService.GenerateBase32Secret();
-                var uriString = _twoFactorAuthService.GenerateQrCodeValue(
-                    base32Secret: user.SecretCode,
+                var uriString = _twoFactorAuthService.GenerateQrCode(
+                    base32Secret: _twoFactorAuthService.GenerateBase32Secret(),
                     username: user.UserName
                 );
                 return Ok(uriString);
@@ -216,28 +215,49 @@ namespace LoginJWT.Controllers
             }
         }
 
-        [AllowFirstFactor]
-        [HttpPost("ValidateTotp")]
-        public IActionResult ValidateTotp([FromBody] SecondFactorAuthRequest model)
+        [HttpPost("ValidateQrCode")]
+        public IActionResult ValidateQrCode([FromBody] SecondFactorAuthRequest model)
         {
             try
             {
-                // Get user from JWT
-                var user = GetUserFromJWT();
+                // If request doesn't contain username
+                if (model.UserName == null)
+                {
+                    model.UserName = _jwt.GetUsername(HttpContext);
+                }
+
+                // Check username
+                var user = _userService.GetUser(username: model.UserName);
                 if (user == null)
                 {
                     return BadRequest("Unauthorized");
                 }
 
+                // Check if request contains qrcode value
+                if (model.QrCode == null)
+                {
+                    return BadRequest("Unauthorized");
+                }
+
+                // Validate and extract secret
+                string? secret = _twoFactorAuthService.GetSecretFromQrCode(qrCode: model.QrCode);
+                if (secret == null)
+                {
+                    return BadRequest("Invalid QR code");
+                }
+
                 // Validate TOTP
                 bool validated = _twoFactorAuthService.ValidateTotp(
-                    base32Secret: user.SecretCode,
+                    base32Secret: secret,
                     totp: model.Totp
                 );
                 if (!validated)
                 {
                     return BadRequest("Invalid OTP");
                 }
+
+                // Update user's secret code
+                user.SecretCode = secret;
 
                 return Ok();
             }
