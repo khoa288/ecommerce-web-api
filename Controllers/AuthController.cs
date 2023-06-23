@@ -1,5 +1,5 @@
 ﻿using LoginForm.Entities;
-using LoginForm.Models;
+using LoginForm.Models.Request;
 using LoginForm.Services;
 using LoginForm.Utils;
 using Microsoft.AspNetCore.Mvc;

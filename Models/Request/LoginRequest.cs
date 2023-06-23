@@ -1,16 +1,13 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace LoginForm.Models
+namespace LoginForm.Models.Request
 {
-    public class RegisterRequest
+    public class LoginRequest
     {
         [Required]
         public string UserName { get; set; } = null!;
 
         [Required]
         public string Password { get; set; } = null!;
-
-        [Required]
-        public string ConfirmPassword { get; set; } = null!;
     }
 }
