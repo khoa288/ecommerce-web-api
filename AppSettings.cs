@@ -1,4 +1,4 @@
-﻿namespace LoginForm
+﻿namespace EcommerceWebApi
 {
     public class AppSettings
     {

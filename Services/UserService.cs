@@ -1,61 +1,130 @@
-﻿using LoginForm.Entities;
+﻿using EcommerceWebApi.Entities;
+using EcommerceWebApi.Utilities;
+using System.Reflection;
 
-namespace LoginForm.Services
+namespace EcommerceWebApi.Services
 {
-    public class UserService
+    public class UserService : IUserService
     {
-        private static readonly List<User> UserList = new();
+        private readonly IUnitOfWork _unitOfWork;
 
-        public void AddUser(User newUser)
+        public UserService(UnitOfWork unitOfWork)
         {
-            UserList.Add(newUser);
+            _unitOfWork = unitOfWork;
         }
 
-        public User? GetUser(string? username = null, string? token = null)
+        public List<User> GetAllUsers()
         {
-            // Get user from username or refresh token
             try
             {
-                User? result = null;
-                if (!string.IsNullOrEmpty(username))
-                {
-                    result = UserList.FirstOrDefault(x => x.UserName == username);
-                }
+                return _unitOfWork.Users.GetAll().AsQueryable().ToList();
+            }
+            catch
+            {
+                throw;
+            }
+        }
 
-                if (!string.IsNullOrEmpty(token))
-                {
-                    result = UserList.FirstOrDefault(x => x.RefreshToken.Token == token);
-                }
+        public List<User> GetPaginationUsers(PaginationFilter paginationFilter)
+        {
+            return GetAllUsers()
+                .Skip((paginationFilter.PageNumber - 1) * paginationFilter.PageSize)
+                .Take(paginationFilter.PageSize)
+                .ToList();
+        }
 
+        public User? GetUserById(string id)
+        {
+            return _unitOfWork.Users.GetById(id);
+        }
+
+        public User? GetUserByToken(string token)
+        {
+            return _unitOfWork.Users.GetByToken(token);
+        }
+
+        public User? GetUserByName(string name)
+        {
+            return _unitOfWork.Users.GetByName(name);
+        }
+
+        public async Task<bool> InsertUserAsync(User user)
+        {
+            try
+            {
+                var result = await _unitOfWork.Users.InsertAsync(user);
                 return result;
             }
             catch
             {
-                return null;
+                throw;
             }
         }
 
-        public void UpdateUser(User user, RefreshToken? refreshToken)
+        public async Task<bool> UpdateUserAsync(User user)
         {
-            // Update user's refresh token
+            try
+            {
+                var result = await _unitOfWork.Users.UpdateAsync(user);
+                return result;
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        public async Task<bool> UpdateUserTokenAsync(User user, RefreshToken? refreshToken)
+        {
             if (refreshToken != null)
             {
                 user.RefreshToken = refreshToken;
             }
             else
             {
-                user.RefreshToken.Token = "";
+                user.RefreshToken.Token = null!;
+            }
+            return await UpdateUserAsync(user);
+        }
+
+        public async Task<bool> UpdateUserPropertyAsync<T>(User user, string property, T value)
+        {
+            var propertyInfo = typeof(User).GetProperty(
+                property,
+                BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance
+            );
+
+            if (propertyInfo == null)
+            {
+                return false;
+            }
+            try
+            {
+                propertyInfo.SetValue(user, value, null);
+                return await UpdateUserAsync(user);
+            }
+            catch
+            {
+                throw;
             }
         }
 
-        public void UpdateTwoFactorAuth(User user)
+        public async Task<bool> DeleteUserAsync(string id)
         {
-            // Update user's two-factor-auth option
-            user.IsTwoFactorAuthActivated = !user.IsTwoFactorAuthActivated;
-            if (!user.IsTwoFactorAuthActivated)
+            try
             {
-                user.SecretCode = null;
+                var result = await _unitOfWork.Users.DeleteAsync(id);
+                return result;
             }
+            catch
+            {
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            _unitOfWork.Dispose();
         }
     }
 }

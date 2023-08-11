@@ -1,109 +1,143 @@
-﻿using JsonFlatFileDataStore;
-using LoginForm.Entities;
-using LoginForm.Utils;
+﻿using EcommerceWebApi.Entities;
+using EcommerceWebApi.Notification;
+using EcommerceWebApi.Utilities;
+using System.Reflection;
 
-namespace LoginForm.Services
+namespace EcommerceWebApi.Services
 {
-    public class ProductService
+    public class ProductService : IProductService
     {
-        private readonly DataStore _store;
-        private readonly string _filePath = "Database/Products.json";
-        private int queryProductCount = 0;
+        private readonly IUnitOfWork _unitOfWork;
 
-        public ProductService()
+        public ProductService(UnitOfWork unitOfWork)
         {
-            _store = new DataStore(_filePath);
+            _unitOfWork = unitOfWork;
         }
 
-        private IDocumentCollection<Product> GetProductCollection()
+        public List<Product> GetAllProducts()
         {
-            var collection = _store.GetCollection<Product>();
-            _store.Dispose();
-            return collection;
+            try
+            {
+                return _unitOfWork.Products.GetAll().AsQueryable().ToList();
+            }
+            catch
+            {
+                throw;
+            }
         }
 
-        public async Task<List<Product>> GetProductsAsync(
+        public int GetNextProductId()
+        {
+            return _unitOfWork.Products.GetAll().GetNextIdValue();
+        }
+
+        public List<Product> GetPaginationProducts(
             PaginationFilter paginationFilter,
-            QueryFilter queryFilter
+            QueryFilter queryFilter,
+            out int queryProductCount
         )
         {
             // Get queryable product collection
-            var products = GetProductCollection().AsQueryable().ToList();
+            var products = GetAllProducts();
 
-            // Filter by search query
-            if (!string.IsNullOrEmpty(queryFilter.Search))
-            {
-                products = products
-                    .Where(
-                        p =>
-                            p.Title.Contains(queryFilter.Search, StringComparison.OrdinalIgnoreCase)
-                    )
-                    .ToList();
-            }
+            // Search products
+            products = QueryHelper
+                .SearchObjects(
+                    products,
+                    queryFilter.SearchBy,
+                    queryFilter.Search,
+                    StringComparison.OrdinalIgnoreCase
+                )
+                .ToList();
 
             // Sort products
-            if (!string.IsNullOrEmpty(queryFilter.SortBy))
-            {
-                switch (queryFilter.SortBy.ToLower())
-                {
-                    case "rating":
-                        products = queryFilter.IsSortAscending
-                            ? products.OrderBy(p => p.Rating).ToList()
-                            : products.OrderByDescending(p => p.Rating).ToList();
-                        break;
-                    case "price":
-                        products = queryFilter.IsSortAscending
-                            ? products.OrderBy(p => p.Price).ToList()
-                            : products.OrderByDescending(p => p.Price).ToList();
-                        break;
-                    default:
-                        break;
-                }
-            }
+            products = QueryHelper
+                .SortObjects(products, queryFilter.SortBy, queryFilter.IsSortAscending)
+                .ToList();
 
             // Get current quantity
             queryProductCount = products.Count;
 
-            return await Task.FromResult(
-                products
-                    .Skip((paginationFilter.PageNumber - 1) * paginationFilter.PageSize)
-                    .Take(paginationFilter.PageSize)
-                    .ToList()
-            );
+            return products
+                .Skip((paginationFilter.PageNumber - 1) * paginationFilter.PageSize)
+                .Take(paginationFilter.PageSize)
+                .ToList();
         }
 
-        public async Task<Product?> GetProductByIdAsync(int id)
+        public Product? GetProductById(int id)
         {
-            return await Task.FromResult(
-                GetProductCollection().AsQueryable().FirstOrDefault(p => p.Id == id)
-            );
+            return _unitOfWork.Products.GetById(id);
         }
 
-        public async Task<bool> AddProductAsync(Product product)
+        public async Task<bool> InsertProductAsync(Product product)
         {
-            var collection = GetProductCollection();
-            product.Id = collection.GetNextIdValue();
-            return await collection.InsertOneAsync(product);
+            try
+            {
+                var result = await _unitOfWork.Products.InsertAsync(product);
+                return result;
+            }
+            catch
+            {
+                throw;
+            }
         }
 
         public async Task<bool> UpdateProductAsync(Product product)
         {
-            return await GetProductCollection().UpdateOneAsync(product.Id, product);
+            try
+            {
+                var result = await _unitOfWork.Products.UpdateAsync(product);
+                return result;
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        public async Task<bool> UpdateProductPropertyAsync<T>(
+            Product product,
+            string property,
+            T value
+        )
+        {
+            var propertyInfo = typeof(Product).GetProperty(
+                property,
+                BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance
+            );
+
+            if (propertyInfo == null)
+            {
+                return false;
+            }
+            try
+            {
+                propertyInfo.SetValue(product, value, null);
+                return await UpdateProductAsync(product);
+            }
+            catch
+            {
+                throw;
+            }
         }
 
         public async Task<bool> DeleteProductAsync(int id)
         {
-            return await GetProductCollection().DeleteOneAsync(p => p.Id == id);
+            try
+            {
+                var result = await _unitOfWork.Products.DeleteAsync(id);
+                _unitOfWork.CommitTransaction();
+                return result;
+            }
+            catch
+            {
+                throw;
+            }
         }
 
-        public int TotalProductCount()
+        public void Dispose()
         {
-            return GetProductCollection().Count;
-        }
-
-        public int QueryProductCount()
-        {
-            return queryProductCount;
+            _unitOfWork.Dispose();
         }
     }
 }

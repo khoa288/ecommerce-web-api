@@ -1,182 +1,173 @@
-﻿using LoginForm.Entities;
-using LoginForm.Models.Request;
-using LoginForm.Services;
-using LoginForm.Utils;
+﻿using EcommerceWebApi.Authentication;
+using EcommerceWebApi.DTOs;
+using EcommerceWebApi.Filters;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using System.Security.Cryptography;
+using static EcommerceWebApi.Authentication.AuthService;
 
-namespace LoginForm.Controllers
+namespace EcommerceWebApi.Controllers
 {
     [ServiceFilter(typeof(AuthorizeFilter))]
     [Controller]
     public class AuthController : Controller
     {
-        private readonly AppSettings _applicationSettings;
-        private readonly UserService _userService;
-        private readonly SecondFactorAuthService _twoFactorAuthService;
-        private readonly JWTHelper _jwt;
+        private readonly IAuthService _authService;
+        private readonly ILogger<AuthController> _logger;
 
-        public AuthController(
-            IOptions<AppSettings> applicationSettings,
-            UserService userService,
-            SecondFactorAuthService twoFactorAuthService
-        )
+        public AuthController(AuthService authService, ILogger<AuthController> logger)
         {
-            _applicationSettings = applicationSettings.Value;
-            _userService = userService;
-            _twoFactorAuthService = twoFactorAuthService;
-            _jwt = new JWTHelper(_applicationSettings, _userService);
+            _authService = authService;
+            _logger = logger;
         }
 
-        private User? GetUserFromJWT()
+        [AuthorizeRole("Admin")]
+        [Route("ReadLog")]
+        public IActionResult ReadLog([FromQuery] string logPath)
         {
-            var username = _jwt.GetUsername(HttpContext);
-            var user = _userService.GetUser(username: username);
-            return user;
+            if (System.IO.File.Exists(logPath))
+            {
+                using var stream = System.IO.File.Open(
+                    logPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite
+                );
+                using var reader = new StreamReader(stream);
+                return Ok(reader.ReadToEnd());
+            }
+            else
+            {
+                return NotFound();
+            }
         }
 
         [AllowAnonymous]
         [HttpPost("Login")]
-        public IActionResult Login([FromBody] LoginRequest model)
+        public async Task<IActionResult> Login([FromBody] LoginDTO loginDTO)
         {
             try
             {
-                // Check username
-                var user = _userService.GetUser(username: model.UserName);
-                if (user == null)
+                var result = await _authService.Login(
+                    loginDTO.Username,
+                    loginDTO.Password,
+                    HttpContext
+                );
+                if (result == AuthResult.Success)
                 {
-                    return BadRequest("Username or Password is invalid");
+                    _logger.LogInformation("User <{Name}> logged in", loginDTO.Username);
+                    return NoContent();
                 }
-
-                // Check password & two-factor authentication
-                using HMACSHA512? hmac = new(key: user.PasswordSalt);
-                var compute = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(model.Password));
-                var match = compute.SequenceEqual(user.PasswordHash);
-                if (!match)
+                ;
+                return result switch
                 {
-                    return BadRequest("Username or Password is invalid");
-                }
-                else if (user.IsTwoFactorAuthActivated)
-                {
-                    // Generate JWT requiring second auth factor
-                    _jwt.JWTGenerator(user, isSecondFactorChecked: false, HttpContext);
-                    return Ok("Unauthorized");
-                }
-
-                // Generate JWT providing access
-                _jwt.JWTGenerator(user, isSecondFactorChecked: true, HttpContext);
-
-                return Ok();
+                    AuthResult.UserNotExist => Unauthorized(),
+                    AuthResult.UserExisted => BadRequest("User existed"),
+                    AuthResult.InvalidCredentials => BadRequest("Invalid credentials"),
+                    AuthResult.NeedSecondFactorAuth => Ok("Need second factor authentication"),
+                    AuthResult.Fail => BadRequest("Login failed"),
+                    _ => throw new NotImplementedException(),
+                };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, $"{ex.Message} - {ex.InnerException?.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
         [AllowFirstFactor]
         [HttpPost("LoginSecondFactor")]
-        public IActionResult LoginSecondFactor([FromBody] SecondFactorAuthRequest model)
+        public async Task<IActionResult> LoginSecondFactor([FromBody] TotpDTO totpDTO)
         {
             try
             {
-                // If request doesn't contain username
-                if (model.UserName == null)
+                var result = await _authService.LoginSecondFactor(totpDTO.Totp, HttpContext);
+                if (result == AuthResult.Success)
                 {
-                    model.UserName = _jwt.GetUsername(HttpContext);
+                    _logger.LogInformation(
+                        "User <{Name}> logged in",
+                        _authService.CurrentUser.Username
+                    );
+                    return NoContent();
                 }
-
-                // Check username
-                var user = _userService.GetUser(username: model.UserName);
-                if (user == null)
+                ;
+                return result switch
                 {
-                    return BadRequest("Unauthorized");
-                }
-
-                // Validate TOTP
-                bool validated = _twoFactorAuthService.ValidateTotp(
-                    base32Secret: user.SecretCode,
-                    totp: model.Totp
-                );
-                if (!validated)
-                {
-                    return BadRequest("Invalid OTP");
-                }
-
-                // Revoke and generate new JWT providing access
-                _jwt.RevokeToken(user, HttpContext);
-                _jwt.JWTGenerator(user, isSecondFactorChecked: true, HttpContext);
-
-                return Ok();
+                    AuthResult.UserNotExist => Unauthorized(),
+                    AuthResult.UserExisted => BadRequest("User existed"),
+                    AuthResult.InvalidCredentials => BadRequest("Invalid credentials"),
+                    AuthResult.NeedSecondFactorAuth => Ok("Need second factor authentication"),
+                    AuthResult.Fail => BadRequest("Login failed"),
+                    _ => throw new NotImplementedException(),
+                };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, $"{ex.Message} - {ex.InnerException?.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
         [AllowAnonymous]
         [HttpPost("Register")]
-        public IActionResult Register([FromBody] RegisterRequest model)
+        public async Task<IActionResult> Register([FromBody] RegisterDTO registerDTO)
         {
             try
             {
-                // Check if username is taken
-                var username = model.UserName;
-                if (_userService.GetUser(username: username) != null)
+                var result = await _authService.Register(
+                    registerDTO.Username,
+                    registerDTO.Password
+                );
+                if (result == AuthResult.Success)
                 {
-                    return BadRequest("Username is not available");
+                    _logger.LogInformation("User <{Name}> registered", registerDTO.Username);
+                    return NoContent();
                 }
-
-                // Validate password & construct new user
-                var user = new User { UserName = username };
-                if (model.ConfirmPassword == model.Password)
+                ;
+                return result switch
                 {
-                    using (HMACSHA512? hmac = new())
-                    {
-                        user.PasswordSalt = hmac.Key;
-                        user.PasswordHash = hmac.ComputeHash(
-                            System.Text.Encoding.UTF8.GetBytes(model.Password)
-                        );
-                    }
-
-                    user.IsTwoFactorAuthActivated = false;
-                }
-                else
-                {
-                    return BadRequest("Passwords don't match");
-                }
-
-                // Add new user
-                _userService.AddUser(user);
-
-                return Ok();
+                    AuthResult.UserNotExist => Unauthorized(),
+                    AuthResult.UserExisted => BadRequest("User existed"),
+                    AuthResult.InvalidCredentials => BadRequest("Invalid credentials"),
+                    AuthResult.NeedSecondFactorAuth => Ok("Need second factor authentication"),
+                    AuthResult.Fail => BadRequest("Register failed"),
+                    _ => throw new NotImplementedException(),
+                };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, $"{ex.Message} - {ex.InnerException?.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
         [HttpDelete("RevokeToken")]
-        public IActionResult RevokeToken()
+        public async Task<IActionResult> RevokeToken()
         {
             try
             {
-                // Get user from JWT
-                var user = GetUserFromJWT();
-                if (user == null)
+                var result = await _authService.RevokeToken(HttpContext);
+                if (result == AuthResult.Success)
                 {
-                    return BadRequest("Unauthorized");
+                    _logger.LogInformation(
+                        "User <{Name}> logged out",
+                        _authService.CurrentUser.Username
+                    );
+                    return NoContent();
                 }
-
-                // Revoke all tokens
-                _jwt.RevokeToken(user, HttpContext);
-                return Ok();
+                ;
+                return result switch
+                {
+                    AuthResult.UserNotExist => Unauthorized(),
+                    AuthResult.UserExisted => BadRequest("User existed"),
+                    AuthResult.InvalidCredentials => BadRequest("Invalid credentials"),
+                    AuthResult.NeedSecondFactorAuth => Ok("Need second factor authentication"),
+                    AuthResult.Fail => BadRequest("Revoke token failed"),
+                    _ => throw new NotImplementedException(),
+                };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, $"{ex.Message} - {ex.InnerException?.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
@@ -184,10 +175,11 @@ namespace LoginForm.Controllers
         [HttpGet("IsAuthenticated")]
         public IActionResult IsAuthenticated()
         {
-            // Return status 200 with no content if user is authenticated
-            // Return status 200 with "Unauthorized" if user needs second factor auth
+            // Return status 200 with no content
+            // Return status 200 with "Need second factor authentication" if need more credentials
             // Return status 401 if user is not authenticated
-            return Ok();
+
+            return NoContent();
         }
 
         [HttpGet("GetQrCode")]
@@ -195,120 +187,53 @@ namespace LoginForm.Controllers
         {
             try
             {
-                // Get user from JWT
-                var user = GetUserFromJWT();
-                if (user == null)
+                var result = _authService.GetQrCode(out string? uriString);
+                return result switch
                 {
-                    return BadRequest("Unauthorized");
-                }
-
-                // Generate secret & QR code
-                var uriString = _twoFactorAuthService.GenerateQrCode(
-                    base32Secret: _twoFactorAuthService.GenerateBase32Secret(),
-                    username: user.UserName
-                );
-                return Ok(uriString);
+                    AuthResult.Success => Ok(uriString),
+                    AuthResult.UserNotExist => Unauthorized(),
+                    AuthResult.UserExisted => BadRequest("User existed"),
+                    AuthResult.InvalidCredentials => BadRequest("Invalid credentials"),
+                    AuthResult.NeedSecondFactorAuth => Ok("Need second factor authentication"),
+                    AuthResult.Fail => BadRequest("Get QR code failed"),
+                    _ => throw new NotImplementedException(),
+                };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, $"{ex.Message} - {ex.InnerException?.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
+        [AllowFirstFactor]
         [HttpPost("ValidateQrCode")]
-        public IActionResult ValidateQrCode([FromBody] SecondFactorAuthRequest model)
+        public async Task<IActionResult> ValidateQrCode([FromBody] TotpDTO totpDTO)
         {
             try
             {
-                // If request doesn't contain username
-                if (model.UserName == null)
+                var result = await _authService.ValidateQrCode(totpDTO.QrCode, totpDTO.Totp);
+                return result switch
                 {
-                    model.UserName = _jwt.GetUsername(HttpContext);
-                }
-
-                // Check username
-                var user = _userService.GetUser(username: model.UserName);
-                if (user == null)
-                {
-                    return BadRequest("Unauthorized");
-                }
-
-                // Check if request contains qrcode value
-                if (model.QrCode == null)
-                {
-                    return BadRequest("Unauthorized");
-                }
-
-                // Validate and extract secret
-                string? secret = _twoFactorAuthService.GetSecretFromQrCode(qrCode: model.QrCode);
-                if (secret == null)
-                {
-                    return BadRequest("Invalid QR code");
-                }
-
-                // Validate TOTP
-                bool validated = _twoFactorAuthService.ValidateTotp(
-                    base32Secret: secret,
-                    totp: model.Totp
-                );
-                if (!validated)
-                {
-                    return BadRequest("Invalid OTP");
-                }
-
-                // Update user's secret code
-                user.SecretCode = secret;
-
-                return Ok();
+                    AuthResult.Success => NoContent(),
+                    AuthResult.UserNotExist => Unauthorized(),
+                    AuthResult.UserExisted => BadRequest("User existed"),
+                    AuthResult.InvalidCredentials => BadRequest("Invalid credentials"),
+                    AuthResult.NeedSecondFactorAuth => Ok("Need second factor authentication"),
+                    AuthResult.Fail => BadRequest("Validate Qr code failed"),
+                    _ => throw new NotImplementedException(),
+                };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, $"{ex.Message} - {ex.InnerException?.Message}");
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }
 
-        [HttpPost("ChangeTwoFactorAuth")]
-        public IActionResult ChangeTwoFactorAuth()
+        protected override void Dispose(bool disposing)
         {
-            try
-            {
-                // Get user from JWT
-                var user = GetUserFromJWT();
-                if (user == null)
-                {
-                    return BadRequest("Unauthorized");
-                }
-
-                // Change user's two factor auth option
-                _userService.UpdateTwoFactorAuth(user);
-                return Ok();
-            }
-            catch
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError);
-            }
-        }
-
-        [HttpGet("GetTwoFactorAuth")]
-        public IActionResult GetTwoFactorAuthStatus()
-        {
-            try
-            {
-                // Get user form JWT
-                var user = GetUserFromJWT();
-                if (user == null)
-                {
-                    return BadRequest("Unauthorized");
-                }
-
-                // Get user's two factor auth option
-                var status = user.IsTwoFactorAuthActivated;
-                return Ok(status.ToString());
-            }
-            catch
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError);
-            }
+            base.Dispose(disposing);
         }
     }
 }
