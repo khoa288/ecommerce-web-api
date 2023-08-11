@@ -65,5 +65,3 @@ dotnet run
 - POST `/insertOrder`
 - PUT `/updateOrderStatus/{id}`
 - DELETE `/deleteOrder/{id}`
-
-// commit message: "feat: add product management API endpoints & utilize Repository and Unit of Work patterns"
